@@ -103,3 +103,7 @@ jobs:
     - name: Terraform Apply
       #if: github.ref == 'refs/heads/"main"' && github.event_name == 'push'
       run: terraform apply -var-file="secret.tfvars" -auto-approve -input=false
+    - name: Terraform Destroy
+      #if: github.ref == 'refs/heads/"main"' && github.event_name == 'push'
+      run: terraform destroy -var-file="secret.tfvars" -auto-approve -input=false
+
