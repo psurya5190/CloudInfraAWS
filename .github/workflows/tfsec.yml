@@ -1,0 +1,52 @@
+name: tfsec
+
+on: pull_request
+
+jobs:
+  tfsec:
+    name: tfsec
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out code in pull request
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    - name: Get files changed in pull request
+      uses: tj-actions/changed-files@v24.1
+      id: changed-files
+      with:
+
+        # This ensures only commits in your branch are considered when detecting changed files. If master moves forward,
+        # the files it changes but you don't won't be considered in this check. See:
+        # https://git-scm.com/docs/git-merge-base#_discussion_on_fork_point_mode
+        use_fork_point: "true"
+
+        files: |
+          **/*.tf
+    - name: Install tfsec
+      run: |
+        ./scripts/dw_check_bin.sh https://github.com/aquasecurity/tfsec/releases/download/v1.15.1/tfsec-linux-amd64 https://github.com/aquasecurity/tfsec/releases/download/v1.15.1/tfsec_checksums.txt tfsec
+    - name: Run tfsec on changed files
+      shell: bash
+      run: |
+        cd $GITHUB_WORKSPACE
+        for path in ${{ steps.changed-files.outputs.all_changed_files }}; do
+          directory=$(dirname $path)
+          if [[ "$(grep $directory tests/tfsec/skipped_roots.txt)" != "" ]]; then
+            echo "Skipping $path"
+            continue
+          fi
+          echo "Checking $path"
+          # Tfsec can only scan directories, not single files: https://github.com/aquasecurity/tfsec/issues/1140
+          # Many roots and modules were created before we started using tfsec. They contain files that don't pass its
+          # checks. Running tfsec in those directories often flags old problems unrelated to the files a pull request is
+          # changing. We move each file we want to check into an empty temporary directory where we can run tfsec
+          # without checking every other file as a side effect.
+          tmp_dir=$(mktemp -d -t ci-XXXXXXXXXX)
+          cp $path $tmp_dir
+          tfsec --ignore-hcl-errors --concise-output --config-file tests/tfsec/tfsec.yaml --custom-check-dir tests/tfsec/ $tmp_dir
+          rm -rf tmp_dir
+        done
+        if [[ "${{ steps.changed-files.outputs.all_changed_files }}" == "" ]]; then
+          echo "::notice ::No terraform files were changed. Nothing to do."
+        fi
